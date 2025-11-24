@@ -29,11 +29,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
-        // build participants section (bulleted list) or a friendly placeholder
+        // build participants section (list without bullets) with unregister buttons
         let participantsHtml = "";
         if (details.participants && details.participants.length > 0) {
           participantsHtml = `<ul class="participants-list">${details.participants
-            .map((p) => `<li>${escapeHtml(p)}</li>`)
+            .map((p) => `<li class="participant-item"><span class="participant-email">${escapeHtml(
+              p
+            )}</span><button class="unregister-btn" data-activity="${escapeHtml(
+              name
+            )}" data-email="${escapeHtml(p)}" aria-label="Unregister ${escapeHtml(
+              p
+            )}">&times;</button></li>`)
             .join("")}</ul>`;
         } else {
           participantsHtml = `<p class="no-participants">No participants yet</p>`;
@@ -52,6 +58,56 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         activitiesList.appendChild(activityCard);
+
+        // Attach unregister event handlers for this activity's buttons
+        const unregisterButtons = activityCard.querySelectorAll(".unregister-btn");
+        unregisterButtons.forEach((btn) => {
+          btn.addEventListener("click", async (event) => {
+            const activityName = btn.dataset.activity;
+            const email = btn.dataset.email;
+
+            // Confirm with the user before unregistering
+            const confirmed = window.confirm(
+              `Are you sure you want to unregister ${email} from "${activityName}"?`
+            );
+
+            if (!confirmed) {
+              return; // user cancelled
+            }
+
+            try {
+              const resp = await fetch(
+                `/activities/${encodeURIComponent(activityName)}/participants?email=${encodeURIComponent(
+                  email
+                )}`,
+                { method: "DELETE" }
+              );
+
+              const result = await resp.json();
+
+              if (resp.ok) {
+                messageDiv.textContent = result.message;
+                messageDiv.className = "success";
+                messageDiv.classList.remove("hidden");
+                // refresh activities to reflect change
+                fetchActivities();
+              } else {
+                messageDiv.textContent = result.detail || "Failed to unregister";
+                messageDiv.className = "error";
+                messageDiv.classList.remove("hidden");
+              }
+
+              setTimeout(() => {
+                messageDiv.classList.add("hidden");
+              }, 4000);
+            } catch (err) {
+              messageDiv.textContent = "Failed to unregister. Please try again.";
+              messageDiv.className = "error";
+              messageDiv.classList.remove("hidden");
+              console.error("Error unregistering:", err);
+            }
+          });
+        });
 
         // Add option to select dropdown
         const option = document.createElement("option");
