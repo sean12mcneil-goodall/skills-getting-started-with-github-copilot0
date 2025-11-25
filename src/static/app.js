@@ -1,14 +1,35 @@
+// Constants for message timeouts
+const MESSAGE_TIMEOUT = 5000;
+const UNREGISTER_TIMEOUT = 4000;
+
 document.addEventListener("DOMContentLoaded", () => {
   const activitiesList = document.getElementById("activities-list");
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
+  let messageTimeoutId = null;
+
   // small helper to avoid HTML injection when inserting participant names
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (s) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s])
     );
+  }
+
+  // Helper to display messages with auto-hide
+  function showMessage(text, type, timeout = MESSAGE_TIMEOUT) {
+    // Clear previous timeout to prevent overlapping timers
+    if (messageTimeoutId) clearTimeout(messageTimeoutId);
+
+    messageDiv.textContent = text;
+    messageDiv.className = type;
+    messageDiv.classList.remove("hidden");
+
+    messageTimeoutId = setTimeout(() => {
+      messageDiv.classList.add("hidden");
+      messageTimeoutId = null;
+    }, timeout);
   }
 
   // Function to fetch activities from API
@@ -59,65 +80,66 @@ document.addEventListener("DOMContentLoaded", () => {
 
         activitiesList.appendChild(activityCard);
 
-        // Attach unregister event handlers for this activity's buttons
-        const unregisterButtons = activityCard.querySelectorAll(".unregister-btn");
-        unregisterButtons.forEach((btn) => {
-          btn.addEventListener("click", async (event) => {
-            const activityName = btn.dataset.activity;
-            const email = btn.dataset.email;
-
-            // Confirm with the user before unregistering
-            const confirmed = window.confirm(
-              `Are you sure you want to unregister ${email} from "${activityName}"?`
-            );
-
-            if (!confirmed) {
-              return; // user cancelled
-            }
-
-            try {
-              const resp = await fetch(
-                `/activities/${encodeURIComponent(activityName)}/participants?email=${encodeURIComponent(
-                  email
-                )}`,
-                { method: "DELETE" }
-              );
-
-              const result = await resp.json();
-
-              if (resp.ok) {
-                messageDiv.textContent = result.message;
-                messageDiv.className = "success";
-                messageDiv.classList.remove("hidden");
-                // refresh activities to reflect change
-                fetchActivities();
-              } else {
-                messageDiv.textContent = result.detail || "Failed to unregister";
-                messageDiv.className = "error";
-                messageDiv.classList.remove("hidden");
-              }
-
-              setTimeout(() => {
-                messageDiv.classList.add("hidden");
-              }, 4000);
-            } catch (err) {
-              messageDiv.textContent = "Failed to unregister. Please try again.";
-              messageDiv.className = "error";
-              messageDiv.classList.remove("hidden");
-              console.error("Error unregistering:", err);
-            }
-          });
-        });
-
         // Add option to select dropdown
         const option = document.createElement("option");
         option.value = name;
         option.textContent = name;
         activitySelect.appendChild(option);
       });
+
+      // Attach unregister handler using event delegation (one listener, not one per button)
+      attachUnregisterHandlers();
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
+    }
+  }
+
+  // Event delegation for unregister buttons (more efficient than attaching listener to each button)
+  function attachUnregisterHandlers() {
+    activitiesList.addEventListener("click", handleUnregisterClick);
+  }
+
+  async function handleUnregisterClick(event) {
+    // Check if the clicked element is an unregister button
+    if (!event.target.classList.contains("unregister-btn")) {
+      return;
+    }
+
+    const btn = event.target;
+    const activityName = btn.dataset.activity;
+    const email = btn.dataset.email;
+
+    // Escape data in confirmation message to prevent any injection
+    const confirmMessage = `Are you sure you want to unregister ${escapeHtml(
+      email
+    )} from "${escapeHtml(activityName)}"?`;
+
+    // Confirm with the user before unregistering
+    if (!window.confirm(confirmMessage)) {
+      return; // user cancelled
+    }
+
+    try {
+      const resp = await fetch(
+        `/activities/${encodeURIComponent(activityName)}/participants?email=${encodeURIComponent(
+          email
+        )}`,
+        { method: "DELETE" }
+      );
+
+      const result = await resp.json();
+
+      if (resp.ok) {
+        showMessage(result.message, "success", UNREGISTER_TIMEOUT);
+        // refresh activities to reflect change
+        fetchActivities();
+      } else {
+        showMessage(result.detail || "Failed to unregister", "error", UNREGISTER_TIMEOUT);
+      }
+    } catch (err) {
+      showMessage("Failed to unregister. Please try again.", "error", UNREGISTER_TIMEOUT);
+      console.error("Error unregistering:", err);
     }
   }
 
@@ -127,6 +149,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
+
+    // Validate that activity is selected
+    if (!activity) {
+      showMessage("Please select an activity", "error");
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -139,26 +167,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
 
       if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
+        showMessage(result.message, "success", MESSAGE_TIMEOUT);
         signupForm.reset();
         // Refresh activities so the new participant appears immediately
         fetchActivities();
       } else {
-        messageDiv.textContent = result.detail || "An error occurred";
-        messageDiv.className = "error";
+        showMessage(result.detail || "An error occurred", "error");
       }
-
-      messageDiv.classList.remove("hidden");
-
-      // Hide message after 5 seconds
-      setTimeout(() => {
-        messageDiv.classList.add("hidden");
-      }, 5000);
     } catch (error) {
-      messageDiv.textContent = "Failed to sign up. Please try again.";
-      messageDiv.className = "error";
-      messageDiv.classList.remove("hidden");
+      showMessage("Failed to sign up. Please try again.", "error");
       console.error("Error signing up:", error);
     }
   });
